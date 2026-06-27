@@ -1,0 +1,77 @@
+/* portal.component.css */
+
+.portal h2 { color: #f1f5f9; }
+.intro { color: #94a3b8; margin-bottom: 1.5rem; }
+.contador { color: #cbd5e1; font-weight: 600; }
+
+.oferta-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.2rem;
+}
+
+.oferta-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.oferta-titulo-zona h3 {
+  margin: 0 0 0.4rem 0;
+  color: #f1f5f9;
+  font-size: 1.3rem;
+}
+
+.empresa { color: #cbd5e1; margin: 0.2rem 0; font-weight: 500; }
+.meta { color: #94a3b8; font-size: 0.9rem; margin: 0.4rem 0; }
+
+.referencia {
+  background: #1e3a5f;
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  text-align: center;
+  min-width: 110px;
+}
+
+.ref-label { display: block; color: #93c5fd; font-size: 0.75rem; }
+.ref-codigo { display: block; color: #f1f5f9; font-weight: bold; font-size: 1.05rem; }
+
+.btn-descripcion {
+  background: #0f172a;
+  color: #cbd5e1;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  margin: 1rem 0 0 0;
+  width: 100%;
+  text-align: left;
+}
+
+.descripcion {
+  background: #0f172a;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-top: 0.8rem;
+  color: #cbd5e1;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.como-aplicar {
+  background: #0f2d1e;
+  border: 1px solid #16a34a;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.aplicar-titulo { color: #86efac; font-weight: bold; margin: 0 0 0.6rem 0; }
+.como-aplicar p { margin: 0.3rem 0; color: #d1fae5; }
+.como-aplicar strong { color: #4ade80; }
+.nota { color: #6ee7b7 !important; font-size: 0.85rem; margin-top: 0.6rem !important; }
+
+.vacio { color: #64748b; text-align: center; padding: 3rem; }

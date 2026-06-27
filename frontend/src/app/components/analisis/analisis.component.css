@@ -1,0 +1,248 @@
+/* analisis.component.css */
+
+.analisis { display: flex; flex-direction: column; gap: 1.5rem; }
+
+/* ── Sección de subida ─────────────────────────────────────── */
+.upload-section {
+  background: #1e293b;
+  border-radius: 12px;
+  padding: 1.5rem;
+  border: 1px solid #334155;
+}
+
+.upload-section h2 { margin-top: 0; color: #f1f5f9; }
+
+.upload-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.upload-box { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.upload-label { font-weight: 600; color: #cbd5e1; }
+
+.upload-box input[type="file"] {
+  padding: 0.5rem;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #e2e8f0;
+}
+
+.file-name { color: #34d399; font-size: 0.9rem; }
+
+.files-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.file-chip {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.chip-remove {
+  background: none;
+  border: none;
+  color: #f87171;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+/* ── Oferta publicada ──────────────────────────────────────── */
+.oferta-publicada {
+  background: #0f172a;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.oferta-publicada select,
+.selector-oferta select,
+.estado-selector select,
+.filtro input[type="text"] {
+  padding: 0.5rem;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #e2e8f0;
+}
+
+.seleccionada {
+  background: #0f2d1e;
+  border: 1px solid #16a34a;
+  border-radius: 6px;
+  padding: 0.6rem;
+  color: #4ade80;
+}
+
+/* ── Botones ───────────────────────────────────────────────── */
+.btn-analizar {
+  width: 100%;
+  padding: 0.9rem;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-analizar:hover:not(:disabled) { background: #2563eb; }
+.btn-analizar:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.btn-limpiar {
+  padding: 0.7rem;
+  background: #7f1d1d;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: 1rem;
+}
+
+/* ── Mensajes ──────────────────────────────────────────────── */
+.mensaje {
+  margin-top: 1rem;
+  padding: 0.8rem;
+  border-radius: 8px;
+}
+
+.mensaje.error { background: #450a0a; color: #fca5a5; border: 1px solid #dc2626; }
+.mensaje.exito { background: #052e16; color: #86efac; border: 1px solid #16a34a; }
+
+/* ── Métricas ──────────────────────────────────────────────── */
+.metricas { display: flex; gap: 1rem; }
+
+.metrica {
+  flex: 1;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 1rem;
+  text-align: center;
+}
+
+.metrica-valor {
+  display: block;
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: #60a5fa;
+}
+
+.metrica-label { color: #94a3b8; font-size: 0.85rem; }
+
+/* ── Filtros ───────────────────────────────────────────────── */
+.filtros {
+  display: flex;
+  gap: 1.5rem;
+  background: #1e293b;
+  border-radius: 10px;
+  padding: 1rem;
+  align-items: center;
+}
+
+.filtro { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; }
+.filtro label { color: #cbd5e1; font-size: 0.9rem; }
+
+/* ── Tabs y gráficas ───────────────────────────────────────── */
+.tabs { display: flex; gap: 0.5rem; }
+
+.tabs button {
+  padding: 0.6rem 1.2rem;
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.tabs button.active { background: #3b82f6; color: white; }
+
+.grafica-container {
+  background: #1e293b;
+  border-radius: 10px;
+  padding: 1.5rem;
+  height: 400px;
+}
+
+/* ── Selector oferta ───────────────────────────────────────── */
+.selector-oferta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: #1e293b;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+/* ── Cards de candidatos ───────────────────────────────────── */
+.candidatos { display: flex; flex-direction: column; gap: 1rem; }
+
+.candidato-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: #0f172a;
+}
+
+.card-title { font-weight: 600; font-size: 1.05rem; }
+.card-score { font-weight: bold; color: #60a5fa; font-size: 1.1rem; }
+
+.card-body { padding: 1rem; }
+.card-body p { margin: 0.4rem 0; }
+.card-body a { color: #60a5fa; }
+
+.skills { margin: 0.6rem 0; }
+
+.skill-tag {
+  display: inline-block;
+  background: #1e3a5f;
+  color: #93c5fd;
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  margin: 0.2rem;
+}
+
+.justificacion {
+  background: #0f172a;
+  border-left: 3px solid #3b82f6;
+  padding: 0.8rem;
+  border-radius: 4px;
+  color: #cbd5e1;
+  font-style: italic;
+  margin: 0.8rem 0;
+}
+
+.estado-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+
+/* ── Vacío ─────────────────────────────────────────────────── */
+.vacio {
+  text-align: center;
+  padding: 3rem;
+  color: #64748b;
+}

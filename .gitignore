@@ -1,0 +1,31 @@
+# ─── Variables de entorno (NUNCA subir) ───────────────
+.env
+backend/.env
+
+# ─── Python ───────────────────────────────────────────
+venv/
+backend/venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ─── Datos con información real ────────────────────────
+backend/data/*.json
+
+# ─── Node / Angular ───────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/.angular/
+frontend/dist/
+*.log
+
+# ─── Editores ─────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# ─── n8n (si exportas credenciales por error) ─────────
+n8n/credentials*.json

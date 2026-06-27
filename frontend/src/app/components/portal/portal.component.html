@@ -1,0 +1,46 @@
+<div class="portal">
+  <h2>🌐 Portal de empleo</h2>
+  <p class="intro">Encuentra tu próxima oportunidad y aplica directamente por email.</p>
+
+  @if (ofertas().length === 0) {
+    <div class="vacio">
+      <p>No hay ofertas publicadas en este momento. Vuelve pronto.</p>
+    </div>
+  } @else {
+    <p class="contador">{{ ofertas().length }} oferta(s) disponible(s)</p>
+
+    @for (o of ofertas(); track o.codigo) {
+      <div class="oferta-card">
+        <div class="oferta-top">
+          <div class="oferta-titulo-zona">
+            <h3>{{ o.titulo }}</h3>
+            @if (o.empresa) { <p class="empresa">🏢 {{ o.empresa }}</p> }
+            <p class="meta">
+              📍 {{ o.ubicacion || '—' }} &nbsp;|&nbsp; 🕐 {{ o.modalidad }}
+              @if (o.salario) { &nbsp;|&nbsp; 💰 {{ o.salario }} }
+            </p>
+          </div>
+          <div class="referencia">
+            <span class="ref-label">Referencia</span>
+            <span class="ref-codigo">{{ o.codigo }}</span>
+          </div>
+        </div>
+
+        <button class="btn-descripcion" (click)="toggleDescripcion(o.codigo!)">
+          {{ expandida() === o.codigo ? '▲ Ocultar descripción' : '▼ Ver descripción completa' }}
+        </button>
+
+        @if (expandida() === o.codigo) {
+          <div class="descripcion">{{ o.descripcion }}</div>
+        }
+
+        <div class="como-aplicar">
+          <p class="aplicar-titulo">📧 ¿Cómo aplicar?</p>
+          <p>Envía tu CV en PDF a: <strong>{{ EMAIL }}</strong></p>
+          <p>Asunto del email: <strong>[{{ o.codigo }}] Tu nombre y apellidos</strong></p>
+          <p class="nota">Tu candidatura será analizada automáticamente y recibirás respuesta en breve.</p>
+        </div>
+      </div>
+    }
+  }
+</div>

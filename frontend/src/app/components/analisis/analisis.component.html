@@ -1,0 +1,194 @@
+<div class="analisis">
+
+  <!-- ── Sección de subida ─────────────────────────────────── -->
+  <section class="upload-section">
+    <h2>📤 Nuevo análisis</h2>
+
+    <div class="upload-grid">
+      <div class="upload-box">
+        <label class="upload-label">📋 Oferta de trabajo (PDF)</label>
+        <input type="file" accept=".pdf" (change)="onOfertaSeleccionada($event)" />
+        @if (ofertaFile()) {
+          <span class="file-name">✓ {{ ofertaFile()!.name }}</span>
+        }
+      </div>
+
+      <div class="upload-box">
+        <label class="upload-label">👥 CVs de candidatos (PDF)</label>
+        <input type="file" accept=".pdf" multiple (change)="onCVsSeleccionados($event)" />
+        @if (cvFiles().length > 0) {
+          <div class="files-list">
+            @for (cv of cvFiles(); track cv.name; let i = $index) {
+              <span class="file-chip">
+                {{ cv.name }}
+                <button (click)="quitarCV(i)" class="chip-remove">✕</button>
+              </span>
+            }
+          </div>
+        }
+      </div>
+    </div>
+
+    <!-- Selector de oferta publicada -->
+    @if (ofertasActivas().length > 0) {
+      <div class="oferta-publicada">
+        <label>💡 O selecciona una oferta publicada:</label>
+        <select (change)="seleccionarOfertaPublicada($any($event.target).value)">
+          <option value="">— Ninguna —</option>
+          @for (o of ofertasActivas(); track o.codigo) {
+            <option [value]="o.codigo">[{{ o.codigo }}] {{ o.titulo }}</option>
+          }
+        </select>
+        @if (ofertaSeleccionada()) {
+          <span class="seleccionada">
+            ✅ Seleccionada: [{{ ofertaSeleccionada()!.codigo }}] {{ ofertaSeleccionada()!.titulo }}
+          </span>
+        }
+      </div>
+    }
+
+    <button class="btn-analizar" (click)="analizar()" [disabled]="cargando()">
+      @if (cargando()) {
+        ⏳ Analizando... (30-90 segundos)
+      } @else {
+        🚀 Analizar candidatos
+      }
+    </button>
+
+    @if (mensaje()) {
+      <div class="mensaje" [class.error]="mensaje()!.tipo === 'error'"
+           [class.exito]="mensaje()!.tipo === 'exito'">
+        {{ mensaje()!.texto }}
+      </div>
+    }
+  </section>
+
+  <!-- ── Resultados ────────────────────────────────────────── -->
+  @if (historial().length > 0) {
+
+    <!-- Selector de oferta para ver -->
+    @if (ofertasEnHistorial().length > 1) {
+      <div class="selector-oferta">
+        <label>📋 Ver ranking de la oferta:</label>
+        <select [ngModel]="ofertaVista()" (ngModelChange)="ofertaVista.set($event)">
+          <option value="">Todas las ofertas</option>
+          @for (of of ofertasEnHistorial(); track of) {
+            <option [value]="of">{{ of }}</option>
+          }
+        </select>
+      </div>
+    }
+
+    <!-- Métricas -->
+    <div class="metricas">
+      <div class="metrica">
+        <span class="metrica-valor">{{ candidatosFiltrados().length }}</span>
+        <span class="metrica-label">Candidatos</span>
+      </div>
+      <div class="metrica">
+        <span class="metrica-valor">{{ scoreMaximo() }}/100</span>
+        <span class="metrica-label">Score más alto</span>
+      </div>
+      <div class="metrica">
+        <span class="metrica-valor">{{ scoreMedio() }}/100</span>
+        <span class="metrica-label">Score medio</span>
+      </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="filtros">
+      <div class="filtro">
+        <label>Score mínimo: {{ filtroScoreMin() }}</label>
+        <input type="range" min="0" max="100" step="5"
+               [ngModel]="filtroScoreMin()"
+               (ngModelChange)="filtroScoreMin.set($event)" />
+      </div>
+      <div class="filtro">
+        <input type="text" placeholder="🔎 Buscar por nombre o skill..."
+               [ngModel]="filtroBusqueda()"
+               (ngModelChange)="filtroBusqueda.set($event)" />
+      </div>
+    </div>
+
+    <!-- Tabs de gráficas -->
+    <div class="tabs">
+      <button [class.active]="tabActiva() === 'ranking'" (click)="tabActiva.set('ranking')">
+        🏆 Ranking
+      </button>
+      <button [class.active]="tabActiva() === 'radar'" (click)="tabActiva.set('radar')">
+        🕸️ Radar
+      </button>
+      <button [class.active]="tabActiva() === 'skills'" (click)="tabActiva.set('skills')">
+        💡 Skills
+      </button>
+    </div>
+
+    <div class="grafica-container">
+      @if (tabActiva() === 'ranking') {
+        <canvas baseChart [data]="rankingChartData()" [options]="rankingChartOptions" type="bar"></canvas>
+      }
+      @if (tabActiva() === 'radar') {
+        <canvas baseChart [data]="radarChartData()" [options]="radarChartOptions" type="radar"></canvas>
+      }
+      @if (tabActiva() === 'skills') {
+        <canvas baseChart [data]="skillsChartData()" [options]="skillsChartOptions" type="bar"></canvas>
+      }
+    </div>
+
+    <!-- Cards de candidatos -->
+    <h2>🧑‍💼 Candidatos</h2>
+    <div class="candidatos">
+      @for (c of candidatosFiltrados(); track c.cvFileName; let i = $index) {
+        <div class="candidato-card">
+          <div class="card-header">
+            <span class="card-title">
+              {{ iconoScore(c.score_match) }} {{ i + 1 }}. {{ c.nombre_candidato || 'Desconocido' }}
+            </span>
+            <span class="card-score">{{ c.score_match }}/100</span>
+          </div>
+
+          <div class="card-body">
+            <p><strong>📋 Oferta:</strong> {{ c.oferta || '—' }}</p>
+            @if (c.email_contacto) {
+              <p><strong>📧 Contacto:</strong>
+                <a [href]="'mailto:' + c.email_contacto">{{ c.email_contacto }}</a>
+              </p>
+            }
+            <p><strong>📍 Ubicación:</strong> {{ c.ubicacion_actual || 'No especificada' }}</p>
+            <p><strong>💼 Experiencia:</strong> {{ c.anos_experiencia_total }} años ·
+               {{ c.num_empresas_trabajadas }} empresa(s)</p>
+            <p><strong>🏷️ Categoría:</strong> {{ c.categoria_profesional }}</p>
+
+            @if (c.skills_tecnicas && c.skills_tecnicas.length > 0) {
+              <div class="skills">
+                <strong>🛠️ Skills:</strong>
+                @for (skill of c.skills_tecnicas; track skill) {
+                  <span class="skill-tag">{{ skill }}</span>
+                }
+              </div>
+            }
+
+            <p class="justificacion">{{ c.justificacion }}</p>
+
+            <!-- Selector de estado del pipeline -->
+            <div class="estado-selector">
+              <label>Estado:</label>
+              <select [ngModel]="c.estado" (ngModelChange)="cambiarEstado(c, $event)">
+                @for (estado of estados; track estado) {
+                  <option [value]="estado">{{ estado }}</option>
+                }
+              </select>
+            </div>
+          </div>
+        </div>
+      }
+    </div>
+
+    <button class="btn-limpiar" (click)="limpiarHistorial()">🗑️ Limpiar historial completo</button>
+  } @else {
+    <div class="vacio">
+      <p>Aún no hay candidatos analizados. Sube una oferta y CVs para empezar.</p>
+    </div>
+  }
+
+</div>

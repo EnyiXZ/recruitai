@@ -1,0 +1,96 @@
+<div class="ofertas">
+  <h2>📋 Gestión de ofertas</h2>
+
+  @if (mensaje()) {
+    <div class="mensaje">{{ mensaje() }}</div>
+  }
+
+  <div class="layout">
+
+    <!-- ── Formulario ──────────────────────────────────────── -->
+    <section class="formulario">
+      <h3>{{ editandoCodigo() ? '✏️ Editar oferta' : '➕ Nueva oferta' }}</h3>
+
+      <label>Título del puesto *</label>
+      <input type="text" [ngModel]="form().titulo"
+             (ngModelChange)="actualizarCampo('titulo', $event)"
+             placeholder="Ej: Data Analyst" />
+
+      <label>Empresa</label>
+      <input type="text" [ngModel]="form().empresa"
+             (ngModelChange)="actualizarCampo('empresa', $event)"
+             placeholder="Ej: RecruitAI Solutions" />
+
+      <div class="form-row">
+        <div class="form-col">
+          <label>Ubicación</label>
+          <input type="text" [ngModel]="form().ubicacion"
+                 (ngModelChange)="actualizarCampo('ubicacion', $event)"
+                 placeholder="Ej: Madrid" />
+        </div>
+        <div class="form-col">
+          <label>Modalidad</label>
+          <select [ngModel]="form().modalidad"
+                  (ngModelChange)="actualizarCampo('modalidad', $event)">
+            @for (m of modalidades; track m) {
+              <option [value]="m">{{ m }}</option>
+            }
+          </select>
+        </div>
+      </div>
+
+      <label>Salario orientativo</label>
+      <input type="text" [ngModel]="form().salario"
+             (ngModelChange)="actualizarCampo('salario', $event)"
+             placeholder="Ej: 35.000-42.000€" />
+
+      <label>Descripción completa *</label>
+      <textarea rows="10" [ngModel]="form().descripcion"
+                (ngModelChange)="actualizarCampo('descripcion', $event)"
+                placeholder="Requisitos, responsabilidades... Este texto lo usa la IA para evaluar los CVs."></textarea>
+
+      <label class="checkbox-label">
+        <input type="checkbox" [ngModel]="form().activa"
+               (ngModelChange)="actualizarCampo('activa', $event)" />
+        Publicar oferta (visible en el portal)
+      </label>
+
+      <div class="form-buttons">
+        <button class="btn-guardar" (click)="guardar()">💾 Guardar oferta</button>
+        @if (editandoCodigo()) {
+          <button class="btn-cancelar" (click)="cancelar()">✖ Cancelar</button>
+        }
+      </div>
+    </section>
+
+    <!-- ── Lista de ofertas ────────────────────────────────── -->
+    <section class="lista">
+      <h3>📄 Ofertas existentes</h3>
+
+      @if (ofertas().length === 0) {
+        <p class="vacio">No hay ofertas todavía. Crea la primera.</p>
+      } @else {
+        @for (o of ofertas(); track o.codigo) {
+          <div class="oferta-item">
+            <div class="oferta-info">
+              <span class="oferta-codigo">[{{ o.codigo }}]</span>
+              <span class="oferta-titulo">{{ o.titulo }}</span>
+              <span class="oferta-badge" [class.activa]="o.activa">
+                {{ o.activa ? '🟢 Activa' : '⚫ Inactiva' }}
+              </span>
+            </div>
+            <div class="oferta-meta">
+              🏢 {{ o.empresa || '—' }} · 📍 {{ o.ubicacion || '—' }} · {{ o.modalidad }}
+              @if (o.salario) { · 💰 {{ o.salario }} }
+            </div>
+            <div class="oferta-acciones">
+              <button class="btn-editar" (click)="editar(o)">✏️ Editar</button>
+              <button class="btn-borrar" (click)="borrar(o.codigo!)">🗑️ Borrar</button>
+            </div>
+          </div>
+        }
+      }
+    </section>
+
+  </div>
+</div>

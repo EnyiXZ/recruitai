@@ -1,0 +1,873 @@
+{
+  "name": "RecruitAI",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "recruitai",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        240,
+        0
+      ],
+      "id": "fc57764e-036c-43e3-8cc5-03509f3b6f04",
+      "name": "Webhook",
+      "webhookId": "69b027df-db53-46da-bd25-92cb9154488b"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "=*"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2224,
+        16
+      ],
+      "id": "83a3a53d-5258-4fd9-a981-b339b5817084",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "offer",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        432,
+        0
+      ],
+      "id": "d48553c2-4158-4580-bc11-5a711339394d",
+      "name": "Extract from File1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "cv",
+        "options": {
+          "keepSource": "json"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        832,
+        0
+      ],
+      "id": "509472f0-df51-4d15-b8a7-20f9000b2035",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "jsCode": "const inputItem   = $input.first();\nconst webhookItem = $('Webhook').first();\n\n// Texto de la oferta:\n// - Si viene PDF → Extract from File1 lo extrajo en inputItem.json.text\n// - Si viene oferta publicada → llega como campo de texto en el webhook\nconst offerText = inputItem.json.text\n    || webhookItem.json.body?.offer_text\n    || webhookItem.json.offer_text\n    || \"\";\n\nif (!offerText) {\n    throw new Error(\"No se pudo obtener el texto de la oferta.\");\n}\n\n// Binarios de los CVs:\n// - Si viene PDF → Extract from File1 los pasa en inputItem.binary\n// - Si viene oferta publicada → están en webhookItem.binary\nconst binariosInput   = inputItem.binary   || {};\nconst binariosWebhook = webhookItem.binary || {};\n\nconst binaries = Object.keys(binariosInput).some(k => k.startsWith('cvs'))\n    ? binariosInput\n    : binariosWebhook;\n\nconst cvKeys = Object.keys(binaries).filter(key => key.startsWith('cvs'));\n\nif (cvKeys.length === 0) {\n    throw new Error(\"No se encontraron CVs en la peticion.\");\n}\n\nreturn cvKeys.map((key, index) => ({\n    json: {\n        offerText:  offerText,\n        cvIndex:    index,\n        cvFileName: binaries[key].fileName,\n    },\n    binary: {\n        cv: binaries[key],\n    },\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        0
+      ],
+      "id": "c64cda53-b923-44b0-9fce-095e2eb712a5",
+      "name": "Split CVs",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// =============================================================\n// Nodo: Parse Analysis — compatible con Claude y Gemini Vision\n// Modo: Run Once for Each Item\n// =============================================================\n\n// Claude (nodo nativo) devuelve: content[0].text\n// Gemini Vision (Analyze Document) devuelve: content.parts[0].text\n// Esta lógica maneja los dos formatos automáticamente.\nconst rawText = \n  $json.content?.[0]?.text              // Claude nativo\n  || $json.content?.parts?.[0]?.text   // Gemini Vision\n  || \"\";\n\nif (!rawText) {\n  return {\n    json: {\n      error: true,\n      message: 'No se recibió respuesta del modelo',\n      cvFileName: $('Split CVs').item.json.cvFileName,\n    },\n  };\n}\n\n// Limpiamos posibles bloques markdown\nconst cleanText = rawText\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/\\s*```$/i, '')\n  .trim();\n\n// Recuperamos metadatos del nodo Split CVs\nconst meta = $('Split CVs').item.json;\n\ntry {\n  const analisis = JSON.parse(cleanText);\n\n  return {\n    json: {\n      cvFileName: meta.cvFileName,\n      cvIndex: meta.cvIndex,\n      ...analisis,\n    },\n  };\n} catch (e) {\n  return {\n    json: {\n      error: true,\n      message: 'JSON inválido devuelto por el modelo',\n      raw: rawText,\n      cvFileName: meta.cvFileName,\n    },\n  };\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        16
+      ],
+      "id": "183bcc46-bf1c-4f60-97fd-185283d6e872",
+      "name": "Parse Analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================================\n// Nodo: Build Ranking\n// Junta todos los análisis en un solo array ordenado por score\n// Modo: Run Once for All Items\n// =============================================================\n\n// $input.all() devuelve TODOS los items que llegan al nodo (los 4 candidatos).\nconst items = $input.all();\n\n// Extraemos solo el JSON de cada item (sin la envoltura .json).\nconst candidatos = items.map(item => item.json);\n\n// Separamos los que se procesaron correctamente de los que fallaron.\nconst validos = candidatos.filter(c => !c.error);\nconst errores = candidatos.filter(c => c.error);\n\n// Ordenamos los válidos por score_match descendente (mejor score primero).\nvalidos.sort((a, b) => (b.score_match || 0) - (a.score_match || 0));\n\n// Construimos la respuesta final.\n// Un único item con un objeto que contiene:\n//   - ranking: array ordenado con todos los candidatos\n//   - total: cuántos se procesaron\n//   - errores: cuántos fallaron (si los hay)\n//   - timestamp: cuándo se hizo el análisis\nconst response = {\n  ranking: validos,\n  total_analizados: validos.length,\n  errores: errores.length,\n  detalles_errores: errores,\n  timestamp: new Date().toISOString(),\n};\n\n// Devolvemos UN solo item con la respuesta completa.\nreturn { json: response };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        16
+      ],
+      "id": "7ba749d7-f5ec-420d-90ce-b0fcccf62399",
+      "name": "Agregar y ordenar el ranking"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// =============================================================\n// Nodo: Check Legibility\n// Evalúa si el PDF tiene texto extraíble o es una imagen\n// Modo: Run Once for Each Item\n// =============================================================\n\n// Texto extraído por el nodo Extract from PDF anterior.\nconst texto = $json.text || \"\";\nconst textoLimpio = texto.trim();\n\n// Umbral: si tiene más de 150 caracteres consideramos que es legible.\n// 150 es conservador: un CV con solo nombre y email ya supera eso.\n// Ajusta si ves falsos positivos/negativos en tus pruebas.\nconst UMBRAL_LEGIBLE = 150;\nconst esLegible = textoLimpio.length >= UMBRAL_LEGIBLE;\n\n// Recuperamos los metadatos del nodo Split CVs para arrastrarlos.\nconst meta = $('Split CVs').item.json;\n\n// Devolvemos TODOS los datos que necesitaremos en ambas ramas.\nreturn {\n  json: {\n    // Metadatos del candidato\n    cvFileName: meta.cvFileName,\n    cvIndex: meta.cvIndex,\n    // Texto de la oferta (necesario en las dos ramas)\n    offerText: meta.offerText,\n    // Texto del CV (solo útil en la rama de texto)\n    cvText: textoLimpio,\n    // Flag de decisión\n    esLegible: esLegible,\n    // Info de diagnóstico (útil para depurar)\n    caracteresExtraidos: textoLimpio.length,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "ac63ceba-316b-469f-b562-b640ee430263",
+      "name": "Check Legibility"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.esLegible }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "id": "9f24e1aa-4cef-4941-990d-1e0b22d43ce6"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "703d4de4-d3ae-48fa-8d6a-d08899a3d9cc",
+                    "leftValue": "={{ $json.esLegible }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "false",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1248,
+        0
+      ],
+      "id": "b37b786f-7d70-4dbf-aa29-ae2d113a8bb5",
+      "name": "Route by Type"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// =============================================================\n// Nodo: Restore Binary\n// Recupera el binario del CV desde el nodo Split CVs\n// ya que el Switch no lo arrastra automáticamente.\n// =============================================================\n\n// Recuperamos el binario del nodo Split CVs donde se creó.\nconst cvBinary = $('Split CVs').item.binary.cv;\n\n// Devolvemos el item con el JSON actual + el binario recuperado.\nreturn {\n  json: $json,\n  binary: {\n    cv: cvBinary,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        128
+      ],
+      "id": "2d5f72b7-ff5c-433e-a08e-2317073d80e2",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1744,
+        16
+      ],
+      "id": "a01ecc46-df1c-4e7e-a0c8-c06b93668416",
+      "name": "Join Branches"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "claude-haiku-4-5-20251001"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Eres un AUDITOR DE TALENTO SENIOR con 15 años de experiencia en selección técnica. Tu trabajo es analizar un CV comparándolo con una oferta de empleo y devolver una evaluación objetiva en formato JSON.\n\n=== REGLAS DE EXTRACCIÓN ===\n1. NO cuentes becas, prácticas o internships como experiencia profesional real.\n2. Categoría profesional según experiencia REAL: \"Becario\" (solo prácticas), \"Junior\" (0-3 años), \"Senior\" (3-8 años), \"Manager\" (>8 años).\n3. Si un dato NO aparece en el CV, devuelve null. NUNCA inventes información.\n4. Los años de experiencia deben ser números decimales.\n\n=== CRITERIOS DE SCORING (0-100) ===\nStack técnico 40%, Sector profesional 20%, Años de experiencia 20%, Ubicación 10%, Certificaciones 10%.\nLos sub_scores deben reflejar exactamente cómo se desglosa el score_match:\nstack_tecnico (máx 40) + sector (máx 20) + experiencia (máx 20) + ubicacion (máx 10) + certificaciones (máx 10) = score_match total.\n\n=== OFERTA DE TRABAJO ===\n{{ $json.offerText }}\n\n=== CV DEL CANDIDATO ===\n{{ $json.cvText }}\n\n=== FORMATO DE SALIDA (JSON ESTRICTO) ===\nDevuelve EXCLUSIVAMENTE un objeto JSON sin bloques markdown ni texto adicional:\n{\n  \"nombre_candidato\": \"string o null\",\n  \"email_candidato\": \"string o null\",\n  \"categoria_profesional\": \"Becario | Junior | Senior | Manager\",\n  \"anos_experiencia_total\": 0.0,\n  \"anos_experiencia_data\": 0.0,\n  \"num_empresas_trabajadas\": 0,\n  \"ubicacion_actual\": \"string o null\",\n  \"sectores\": [],\n  \"skills_tecnicas\": [],\n  \"certificaciones\": [],\n  \"score_match\": 0,\n  \"sub_scores\": {\n    \"stack_tecnico\": 0,\n    \"sector\": 0,\n    \"experiencia\": 0,\n    \"ubicacion\": 0,\n    \"certificaciones\": 0\n  },\n  \"justificacion\": \"Breve explicación de la puntuación, máximo 3 frases\"\n}"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 2000,
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1456,
+        -64
+      ],
+      "id": "f6995c7b-6be0-472b-b735-d67aa36c2dee",
+      "name": "Claude Text",
+      "credentials": {
+        "anthropicApi": {
+          "id": "677FoG2E2I4Ydba7",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "claude-haiku-4-5-20251001"
+        },
+        "text": "=Eres un AUDITOR DE TALENTO SENIOR con 15 años de experiencia en selección técnica. Analiza el CV adjunto comparándolo con la siguiente oferta y devuelve EXCLUSIVAMENTE un objeto JSON sin bloques markdown ni texto adicional.\n\n=== REGLAS ===\n1. NO cuentes becas o prácticas como experiencia real.\n2. Categorías: \"Becario\" (solo prácticas), \"Junior\" (0-3 años), \"Senior\" (3-8), \"Manager\" (>8).\n3. Si un dato no aparece → null. NUNCA inventes.\n4. Años de experiencia en decimales.\n5. El CV puede estar en formato imagen o diseño visual, extrae toda la información visible.\n\n=== CRITERIOS DE SCORING (0-100) ===\nStack técnico 40%, Sector profesional 20%, Años de experiencia 20%, Ubicación 10%, Certificaciones 10%.\nLos sub_scores deben reflejar exactamente cómo se desglosa el score_match:\nstack_tecnico (máx 40) + sector (máx 20) + experiencia (máx 20) + ubicacion (máx 10) + certificaciones (máx 10) = score_match total.\n\n=== OFERTA DE TRABAJO ===\n{{ $json.offerText }}\n\n=== FORMATO DE SALIDA (JSON ESTRICTO) ===\nDevuelve EXCLUSIVAMENTE un objeto JSON sin bloques markdown ni texto adicional:\n{\n  \"nombre_candidato\": \"string o null\",\n  \"email_candidato\": \"string o null\",\n  \"categoria_profesional\": \"Becario | Junior | Senior | Manager\",\n  \"anos_experiencia_total\": 0.0,\n  \"anos_experiencia_data\": 0.0,\n  \"num_empresas_trabajadas\": 0,\n  \"ubicacion_actual\": \"string o null\",\n  \"sectores\": [],\n  \"skills_tecnicas\": [],\n  \"certificaciones\": [],\n  \"score_match\": 0,\n  \"sub_scores\": {\n    \"stack_tecnico\": 0,\n    \"sector\": 0,\n    \"experiencia\": 0,\n    \"ubicacion\": 0,\n    \"certificaciones\": 0\n  },\n  \"justificacion\": \"Breve explicación de la puntuación, máximo 3 frases\"\n}",
+        "inputType": "binary",
+        "binaryPropertyName": "cv",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1616,
+        128
+      ],
+      "id": "fe14e0ee-dd1e-416a-83c9-8363f7e352ea",
+      "name": "Analyze document1",
+      "credentials": {
+        "anthropicApi": {
+          "id": "677FoG2E2I4Ydba7",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "downloadAttachments": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.1,
+      "position": [
+        224,
+        368
+      ],
+      "id": "e18a2a32-61fc-43cb-9ad7-26ac72b28581",
+      "name": "Email Trigger (IMAP)",
+      "credentials": {
+        "imap": {
+          "id": "WmeCHrxhjR5Y2Lw6",
+          "name": "IMAP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "82b168f8-027f-4133-b766-d16d5d30205a",
+              "leftValue": "={{ $json.subject.toString() }}",
+              "rightValue": "[OFERTA-",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        432,
+        368
+      ],
+      "id": "1609e0b2-6095-426a-b5db-f85839e55c1f",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "cv",
+        "options": {
+          "keepSource": "json"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        832,
+        368
+      ],
+      "id": "878c8b7f-d650-437d-93bd-c2b4ad1df965",
+      "name": "Extract from File3"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// =============================================================\n// Nodo: Parse Analysis — compatible con Claude Text y Claude Vision\n// Modo: Run Once for Each Item\n// =============================================================\n\nconst rawText =\n  $json.content?.[0]?.text            // Claude nativo (texto)\n  || $json.content?.parts?.[0]?.text  // Gemini Vision (legado)\n  || $json.text                        // Analyze document de Anthropic\n  || \"\";\n\nif (!rawText) {\n  return {\n    json: {\n      error: true,\n      message: 'No se recibió respuesta del modelo',\n      cvFileName: $('Preparar Email').item.json.cvFileName,\n    },\n  };\n}\n\nconst cleanText = rawText\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/\\s*```$/i, '')\n  .trim();\n\n// Recuperamos metadatos del nodo Preparar Email\nconst meta = $('Preparar Email').item.json;\n\ntry {\n  const analisis = JSON.parse(cleanText);\n  return {\n    json: {\n      cvFileName: meta.cvFileName,\n      cvIndex:    meta.cvIndex,\n      ...analisis,\n    },\n  };\n} catch (e) {\n  return {\n    json: {\n      error: true,\n      message: 'JSON inválido devuelto por el modelo',\n      raw:      rawText,\n      cvFileName: meta.cvFileName,\n    },\n  };\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1968,
+        400
+      ],
+      "id": "0f7f4074-b8c4-45e7-8040-bf9f3b9152d6",
+      "name": "Parse Analysis1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// =============================================================\n// Nodo: Check Legibility\n// Evalúa si el PDF tiene texto extraíble o es una imagen.\n// Adaptado para el workflow de email (offerText viene de Preparar Email).\n// =============================================================\n\nconst texto     = $json.text || \"\";\nconst textoLimpio = texto.trim();\n\nconst UMBRAL_LEGIBLE = 150;\nconst esLegible      = textoLimpio.length >= UMBRAL_LEGIBLE;\n\n// Recuperamos metadatos del nodo Preparar Email\nconst meta = $('Preparar Email').item.json;\n\nreturn {\n    json: {\n        cvFileName:          meta.cvFileName,\n        cvIndex:             meta.cvIndex,\n        offerText:           meta.offerText,\n        ofertaTitulo:        meta.ofertaTitulo,\n        ofertaCodigo:        meta.ofertaCodigo,\n        remitente:           meta.remitente,\n        asunto:              meta.asunto,\n        cvText:              textoLimpio,\n        esLegible:           esLegible,\n        caracteresExtraidos: textoLimpio.length,\n    },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        368
+      ],
+      "id": "74d06cc6-77f2-4814-985f-1fec2b64c5f1",
+      "name": "Check Legibility1"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.esLegible }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "id": "9f24e1aa-4cef-4941-990d-1e0b22d43ce6"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "703d4de4-d3ae-48fa-8d6a-d08899a3d9cc",
+                    "leftValue": "={{ $json.esLegible }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "false",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1248,
+        368
+      ],
+      "id": "f6f477af-7028-406a-8ea7-8c423a1ba050",
+      "name": "Route by Type1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// =============================================================\n// Nodo: Restore Binary\n// Recupera el binario del CV desde el nodo Split CVs\n// ya que el Switch no lo arrastra automáticamente.\n// =============================================================\n\n// Recuperamos el binario del nodo Split CVs donde se creó.\nconst cvBinary = $('Preparar Email').item.binary.cv;\n\n// Devolvemos el item con el JSON actual + el binario recuperado.\nreturn {\n  json: $json,\n  binary: {\n    cv: cvBinary,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        512
+      ],
+      "id": "7a3555e2-c150-4837-9642-481123748f24",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "claude-haiku-4-5-20251001"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Eres un AUDITOR DE TALENTO SENIOR con 15 años de experiencia en selección técnica. Tu trabajo es analizar un CV comparándolo con una oferta de empleo y devolver una evaluación objetiva en formato JSON.\n\n=== REGLAS DE EXTRACCIÓN ===\n1. NO cuentes becas, prácticas o internships como experiencia profesional real.\n2. Categoría profesional según experiencia REAL: \"Becario\" (solo prácticas), \"Junior\" (0-3 años), \"Senior\" (3-8 años), \"Manager\" (>8 años).\n3. Si un dato NO aparece en el CV, devuelve null. NUNCA inventes información.\n4. Los años de experiencia deben ser números decimales.\n\n=== CRITERIOS DE SCORING (0-100) ===\nStack técnico 40%, Sector profesional 20%, Años de experiencia 20%, Ubicación 10%, Certificaciones 10%.\nLos sub_scores deben reflejar exactamente cómo se desglosa el score_match:\nstack_tecnico (máx 40) + sector (máx 20) + experiencia (máx 20) + ubicacion (máx 10) + certificaciones (máx 10) = score_match total.\n\n=== OFERTA DE TRABAJO ===\n{{ $json.offerText }}\n\n=== CV DEL CANDIDATO ===\n{{ $json.cvText }}\n\n=== FORMATO DE SALIDA (JSON ESTRICTO) ===\nDevuelve EXCLUSIVAMENTE un objeto JSON sin bloques markdown ni texto adicional:\n{\n  \"nombre_candidato\": \"string o null\",\n  \"email_candidato\": \"string o null\",\n  \"categoria_profesional\": \"Becario | Junior | Senior | Manager\",\n  \"anos_experiencia_total\": 0.0,\n  \"anos_experiencia_data\": 0.0,\n  \"num_empresas_trabajadas\": 0,\n  \"ubicacion_actual\": \"string o null\",\n  \"sectores\": [],\n  \"skills_tecnicas\": [],\n  \"certificaciones\": [],\n  \"score_match\": 0,\n  \"sub_scores\": {\n    \"stack_tecnico\": 0,\n    \"sector\": 0,\n    \"experiencia\": 0,\n    \"ubicacion\": 0,\n    \"certificaciones\": 0\n  },\n  \"justificacion\": \"Breve explicación de la puntuación, máximo 3 frases\"\n}"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 2000,
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1456,
+        304
+      ],
+      "id": "d465af63-6c60-44e8-9c8f-3088e149c83f",
+      "name": "Claude Text1",
+      "credentials": {
+        "anthropicApi": {
+          "id": "677FoG2E2I4Ydba7",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "claude-haiku-4-5-20251001"
+        },
+        "text": "=Eres un AUDITOR DE TALENTO SENIOR con 15 años de experiencia en selección técnica. Analiza el CV adjunto comparándolo con la siguiente oferta y devuelve EXCLUSIVAMENTE un objeto JSON sin bloques markdown ni texto adicional.\n\n=== REGLAS ===\n1. NO cuentes becas o prácticas como experiencia real.\n2. Categorías: \"Becario\" (solo prácticas), \"Junior\" (0-3 años), \"Senior\" (3-8), \"Manager\" (>8).\n3. Si un dato no aparece → null. NUNCA inventes.\n4. Años de experiencia en decimales.\n5. El CV puede estar en formato imagen o diseño visual, extrae toda la información visible.\n\n=== CRITERIOS DE SCORING (0-100) ===\nStack técnico 40%, Sector profesional 20%, Años de experiencia 20%, Ubicación 10%, Certificaciones 10%.\nLos sub_scores deben reflejar exactamente cómo se desglosa el score_match:\nstack_tecnico (máx 40) + sector (máx 20) + experiencia (máx 20) + ubicacion (máx 10) + certificaciones (máx 10) = score_match total.\n\n=== OFERTA DE TRABAJO ===\n{{ $json.offerText }}\n\n=== FORMATO DE SALIDA (JSON ESTRICTO) ===\nDevuelve EXCLUSIVAMENTE un objeto JSON sin bloques markdown ni texto adicional:\n{\n  \"nombre_candidato\": \"string o null\",\n  \"email_candidato\": \"string o null\",\n  \"categoria_profesional\": \"Becario | Junior | Senior | Manager\",\n  \"anos_experiencia_total\": 0.0,\n  \"anos_experiencia_data\": 0.0,\n  \"num_empresas_trabajadas\": 0,\n  \"ubicacion_actual\": \"string o null\",\n  \"sectores\": [],\n  \"skills_tecnicas\": [],\n  \"certificaciones\": [],\n  \"score_match\": 0,\n  \"sub_scores\": {\n    \"stack_tecnico\": 0,\n    \"sector\": 0,\n    \"experiencia\": 0,\n    \"ubicacion\": 0,\n    \"certificaciones\": 0\n  },\n  \"justificacion\": \"Breve explicación de la puntuación, máximo 3 frases\"\n}",
+        "inputType": "binary",
+        "binaryPropertyName": "cv",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        512
+      ],
+      "id": "535da6a1-8381-4c21-9e65-ca470feb39cf",
+      "name": "Analyze document2",
+      "credentials": {
+        "anthropicApi": {
+          "id": "677FoG2E2I4Ydba7",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================================\n// Nodo: Build Ranking\n// Junta todos los análisis en un solo array ordenado por score\n// Modo: Run Once for All Items\n// =============================================================\n\n// $input.all() devuelve TODOS los items que llegan al nodo (los 4 candidatos).\nconst items = $input.all();\n\n// Extraemos solo el JSON de cada item (sin la envoltura .json).\nconst candidatos = items.map(item => item.json);\n\n// Separamos los que se procesaron correctamente de los que fallaron.\nconst validos = candidatos.filter(c => !c.error);\nconst errores = candidatos.filter(c => c.error);\n\n// Ordenamos los válidos por score_match descendente (mejor score primero).\nvalidos.sort((a, b) => (b.score_match || 0) - (a.score_match || 0));\n\n// Construimos la respuesta final.\n// Un único item con un objeto que contiene:\n//   - ranking: array ordenado con todos los candidatos\n//   - total: cuántos se procesaron\n//   - errores: cuántos fallaron (si los hay)\n//   - timestamp: cuándo se hizo el análisis\nconst response = {\n  ranking: validos,\n  total_analizados: validos.length,\n  errores: errores.length,\n  detalles_errores: errores,\n  timestamp: new Date().toISOString(),\n};\n\n// Devolvemos UN solo item con la respuesta completa.\nreturn { json: response };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        400
+      ],
+      "id": "ba84bdc9-1cc3-4124-941c-b147b23d944d",
+      "name": "Agregar y ordenar el ranking1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs      = require('fs');\nconst path    = '/opt/recruitai/historial_candidatos.json';\nconst ranking = $input.first().json.ranking || [];\n\nconst rankingEtiquetado = ranking.map(c => ({\n    ...c,\n    // Para CVs subidos manualmente, el email viene del CV si Claude lo extrajo\n    email_contacto: c.email_candidato || null,\n}));\n\nlet historial = [];\ntry {\n    const contenido = fs.readFileSync(path, 'utf8');\n    historial = JSON.parse(contenido);\n} catch (e) {\n    historial = [];\n}\n\nconst yaExistentes = new Set(\n    historial.map(c => `${c.oferta}|||${c.cvFileName}`)\n);\n\nconst nuevos = rankingEtiquetado.filter(c =>\n    !yaExistentes.has(`${c.oferta}|||${c.cvFileName}`)\n);\n\nconst actualizado = historial.concat(nuevos);\nfs.writeFileSync(path, JSON.stringify(actualizado, null, 2), 'utf8');\n\nreturn [{ json: { guardados: nuevos.length, total: actualizado.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        16
+      ],
+      "id": "6b446100-f692-461e-9d9f-ed1c0a81b8aa",
+      "name": "Guardar en Historial"
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================================\n// Nodo: Preparar Email\n// 1. Extrae el código de oferta del asunto ([OFERTA-001])\n// 2. Lee la oferta correspondiente de ofertas.json\n// 3. Separa los CVs adjuntos en items individuales\n// =============================================================\n\nconst fs   = require('fs');\nconst item = $input.first();\n\n// ── 1. Extraer código del asunto ──────────────────────────────\n// El asunto debe contener algo como: [OFERTA-001] Juan Pérez\nconst asunto  = item.json.subject || \"\";\nconst match   = asunto.match(/\\[([A-Z]+-\\d+)\\]/i);\n\nif (!match) {\n    throw new Error(\n        `No se encontró código de oferta en el asunto: \"${asunto}\". ` +\n        `Formato esperado: [OFERTA-001] Tu nombre`\n    );\n}\n\nconst codigo = match[1].toUpperCase();\n\n// ── 2. Leer la oferta de ofertas.json ────────────────────────\nlet oferta;\ntry {\n    const contenido = fs.readFileSync('/opt/recruitai/ofertas.json', 'utf8');\n    const ofertas   = JSON.parse(contenido);\n    oferta = ofertas.find(o => o.codigo.toUpperCase() === codigo && o.activa);\n} catch (e) {\n    throw new Error(`No se pudo leer ofertas.json: ${e.message}`);\n}\n\nif (!oferta) {\n    throw new Error(\n        `No se encontró ninguna oferta activa con el código \"${codigo}\". ` +\n        `Comprueba que la oferta existe y está publicada en Streamlit.`\n    );\n}\n\n// ── 3. Separar CVs adjuntos ───────────────────────────────────\nconst binaries = item.binary || {};\nconst cvKeys   = Object.keys(binaries).filter(key => {\n    const mime = (binaries[key].mimeType || \"\").toLowerCase();\n    const name = (binaries[key].fileName || \"\").toLowerCase();\n    return mime.includes(\"pdf\") || name.endsWith(\".pdf\");\n});\n\nif (cvKeys.length === 0) {\n    throw new Error(\"El email no tiene CVs adjuntos en PDF.\");\n}\n\n// Datos del candidato para la respuesta\nconst remitente = item.json.from;\n\n// Generamos un item por cada CV\nreturn cvKeys.map((key, index) => ({\n    json: {\n        offerText:    oferta.descripcion,\n        ofertaTitulo: oferta.titulo,\n        ofertaCodigo: oferta.codigo,\n        cvIndex:      index,\n        cvFileName:   binaries[key].fileName || `CV_${index + 1}.pdf`,\n        remitente,\n        asunto,\n    },\n    binary: {\n        cv: binaries[key],\n    },\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        368
+      ],
+      "id": "8e17b281-8eff-4232-acf9-3e064413e8cf",
+      "name": "Preparar Email"
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs      = require('fs');\nconst path    = '/opt/recruitai/historial_candidatos.json';\nconst data    = $input.first().json;\nconst ranking = data.ranking || [];\n\nconst meta   = $('Preparar Email').first().json;\nconst oferta = meta.ofertaTitulo || meta.ofertaCodigo || 'Email';\n\nconst rankingEtiquetado = ranking.map(c => ({\n    ...c,\n    oferta:          oferta,\n    estado:          \"⚪ Nuevo\",\n    // Email del remitente (quien mandó el CV por email)\n    email_contacto:  meta.remitente || c.email_candidato || null,\n}));\n\nlet historial = [];\ntry {\n    const contenido = fs.readFileSync(path, 'utf8');\n    historial = JSON.parse(contenido);\n} catch (e) {\n    historial = [];\n}\n\nconst yaExistentes = new Set(\n    historial.map(c => `${c.oferta}|||${c.cvFileName}`)\n);\n\nconst nuevos = rankingEtiquetado.filter(c =>\n    !yaExistentes.has(`${c.oferta}|||${c.cvFileName}`)\n);\n\nconst actualizado = historial.concat(nuevos);\nfs.writeFileSync(path, JSON.stringify(actualizado, null, 2), 'utf8');\n\nreturn [{ json: { guardados: nuevos.length, total: actualizado.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2288,
+        400
+      ],
+      "id": "ea610711-b58e-497e-8975-209dfaf91231",
+      "name": "Guardar en Historial1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract from File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "Guardar en Historial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File1": {
+      "main": [
+        [
+          {
+            "node": "Split CVs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Check Legibility",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split CVs": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Analysis": {
+      "main": [
+        [
+          {
+            "node": "Agregar y ordenar el ranking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agregar y ordenar el ranking": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Legibility": {
+      "main": [
+        [
+          {
+            "node": "Route by Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Type": {
+      "main": [
+        [
+          {
+            "node": "Claude Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Analyze document1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Join Branches": {
+      "main": [
+        [
+          {
+            "node": "Parse Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Text": {
+      "main": [
+        [
+          {
+            "node": "Join Branches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze document1": {
+      "main": [
+        [
+          {
+            "node": "Join Branches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Email Trigger (IMAP)": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Preparar Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File3": {
+      "main": [
+        [
+          {
+            "node": "Check Legibility1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Legibility1": {
+      "main": [
+        [
+          {
+            "node": "Route by Type1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Type1": {
+      "main": [
+        [
+          {
+            "node": "Claude Text1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Analyze document2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Text1": {
+      "main": [
+        [
+          {
+            "node": "Parse Analysis1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze document2": {
+      "main": [
+        [
+          {
+            "node": "Parse Analysis1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Analysis1": {
+      "main": [
+        [
+          {
+            "node": "Agregar y ordenar el ranking1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agregar y ordenar el ranking1": {
+      "main": [
+        [
+          {
+            "node": "Guardar en Historial1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Email": {
+      "main": [
+        [
+          {
+            "node": "Extract from File3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "c5e4c7f4-6b23-45c2-a89f-b9c0e67a5cca",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8fe34e6138cd1352bef998427503303b775dddda2449858cad2fbb8d130282bc"
+  },
+  "id": "sJXXk6zaAy7EQANZ",
+  "tags": []
+}
