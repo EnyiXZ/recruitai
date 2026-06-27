@@ -113,6 +113,27 @@ recruitai/
 ```
 
 ---
+## 📸 Capturas
+
+### Análisis de CVs y ranking de candidatos
+La pantalla principal: subida de oferta y CVs, métricas resumen y gráficas interactivas.
+
+![Análisis de CVs](screenshots/inicio.png)
+
+### Detalle de candidatos con scoring por IA
+Cada candidato evaluado con su score, skills, justificación y email de contacto.
+
+![Detalle de candidatos](screenshots/inicio2.png)
+
+### Gestión de ofertas
+CRUD de ofertas con códigos autogenerados y publicación al portal.
+
+![Gestión de ofertas](screenshots/gestion-ofertas.png)
+
+### Portal público de empleo
+Vista que ven los candidatos, con instrucciones para aplicar por email.
+
+![Portal de empleo](screenshots/ofertas.png)
 
 ## 🔒 Nota sobre seguridad
 
